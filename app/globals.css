@@ -1,0 +1,40 @@
+@import "tailwindcss";
+/* นำเข้า Tailwind v4 เป็นอันดับแรก */
+
+@theme {
+  /* ลบคำว่า inline ออก และย้ายการตั้งค่า Font มาไว้ในบล็อก @theme */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* เราสามารถกำหนดสีประจำโปรเจกต์ไว้ที่นี่ได้เลย */
+  --color-brand-blue: #3b82f6;
+}
+
+/* ส่วนของ Root สำหรับจัดการ Light/Dark Mode แบบดั้งเดิม */
+:root {
+  --background: #020617;
+  /* พี่ปรับเป็นสีเข้มให้เหมาะกับ Smart Home นะครับ */
+  --foreground: #ededed;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #020617;
+    --foreground: #ffffff;
+  }
+}
+
+/* ประยุกต์ใช้สีกับ Body */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  /* ใช้ Font ที่เราตั้งไว้ใน @theme */
+}
+
+/* --- เพิ่มส่วนการตกแต่ง (Custom Classes) ที่หนูต้องการแยกไว้ที่นี่ --- */
+@layer components {
+  .smart-home-bg {
+    @apply min-h-screen bg-[#020617] text-slate-100 p-6 lg:p-10;
+  }
+}
