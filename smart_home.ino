@@ -5,12 +5,11 @@
 #include <Adafruit_SSD1306.h>
 #include <HTTPClient.h>
 
-// --- ส่วนที่ต้องเติมเองก่อนเบิร์นลงบอร์ด (ห้ามอัปขึ้น GitHub ทั้งชุดนี้) ---
-const char* ssid = "YOUR_WIFI_NAME";         // ชื่อ WiFi ของพี่
-const char* password = "YOUR_WIFI_PASSWORD"; // รหัส WiFi ของพี่
+const char* ssid = "YOUR_WIFI_NAME";         // ชื่อ WiFi
+const char* password = "YOUR_WIFI_PASSWORD"; // รหัส WiFi
 const char* mqtt_server = "broker.emqx.io";
 
-// --- URL ของ Google App Script (ห้ามเผยแพร่ลิงก์ที่มีสิทธิ์เขียนไฟล์) ---
+// --- URL ของ Google App Script ---
 const String googleScriptURL = "YOUR_GOOGLE_SCRIPT_URL";
 
 // --- Telegram Bot Token & Chat ID ---
@@ -163,6 +162,7 @@ void setup() {
 bool lightState = LOW;
 unsigned long lastClapTime = 0;
 
+
 void loop() {
   if (!client.connected()) reconnect();
   client.loop();
@@ -172,6 +172,27 @@ void loop() {
   float t = dht.readTemperature();
   float h = dht.readHumidity();
 
+  
+  // --- 1. ฟังชันควบคุมพัดลมอัตโนมัติตามอุณหภูมิ (Auto Fan) ---
+  static bool autoFanActive = false;
+  if (!isnan(t)) { // เช็กว่าเซนเซอร์อ่านค่าได้ปกติ
+    if (t >= 35.0 && !autoFanActive) {
+      digitalWrite(FAN_PIN, HIGH);
+      autoFanActive = true;
+      client.publish("home/fan", "ON");
+      sendTelegram("🌡️ อุณหภูมิสูง (" + String(t) + "°C): เปิดพัดลมอัตโนมัติ");
+      sendToGoogleSheet("AUTO_FAN_ON");
+    } 
+    else if (t < 33.0 && autoFanActive) { // ปิดเมื่ออุณหภูมิลดลงมาเล็กน้อย
+      digitalWrite(FAN_PIN, LOW);
+      autoFanActive = false;
+      client.publish("home/fan", "OFF");
+      sendTelegram("❄️ อุณหภูมิลดลง (" + String(t) + "°C): ปิดพัดลมอัตโนมัติ");
+      sendToGoogleSheet("AUTO_FAN_OFF");
+    }
+  }
+
+  // --- 2. Logic ตบมือไฟติด-ดับ (Clap Switch) ---
   if (soundVal > 3000 && (millis() - lastClapTime > 600)) {
     lightState = !lightState;
     digitalWrite(LED_WHITE_1, lightState ? HIGH : LOW);
@@ -182,22 +203,30 @@ void loop() {
     sendTelegram(lightState ? "💡 ไฟบ้าน: เปิดแล้ว" : "🌑 ไฟบ้าน: ปิดแล้ว (ตบมือ)");
   }
 
+  // --- 3. การแสดงผล OLED ---
   static int lastOLEDStatus = -1;
   static bool lastLightOLED = !lightState;
-  if (isDoorOpen != lastOLEDStatus || lightState != lastLightOLED) {
+  static float lastT = -1.0;
+  
+  // อัปเดตจอเมื่ออุณหภูมิเปลี่ยน หรือสถานะอุปกรณ์เปลี่ยน
+  if (isDoorOpen != lastOLEDStatus || lightState != lastLightOLED || abs(t - lastT) > 0.5) {
     display.clearDisplay();
     display.setCursor(0, 0);
     display.println("Smart Home System");
     display.printf("T: %.1f C H: %.1f %%\n", isnan(t) ? 0 : t, isnan(h) ? 0 : h);
     display.printf("Light: %s\n", lightState ? "ON" : "OFF");
-    display.setCursor(0, 45);
+    display.printf("Fan: %s\n", digitalRead(FAN_PIN) ? "ON" : "OFF"); // โชว์สถานะพัดลม
+    display.setCursor(0, 48);
     if (isDoorOpen) display.println(">> DOOR OPEN! <<");
     else display.println("Door: Closed");
     display.display();
+    
     lastOLEDStatus = isDoorOpen;
     lastLightOLED = lightState;
+    lastT = t;
   }
 
+  // --- 4. ระบบกันขโมย (Security Mode) ---
   if (isSecurityOn && isDoorOpen) {
     tone(BUZZER_PIN, 500); 
     digitalWrite(LED_ALERT, (millis() / 200) % 2);
@@ -212,6 +241,7 @@ void loop() {
     digitalWrite(LED_ALERT, LOW);
   }
 
+  // --- 5. แจ้งเตือนสถานะประตูเปลี่ยนไป ---
   static bool prevDoorState = false;
   if (isDoorOpen != prevDoorState) {
     String dStatus = isDoorOpen ? "OPENED" : "CLOSED";
